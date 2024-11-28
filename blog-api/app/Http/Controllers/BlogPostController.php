@@ -4,66 +4,90 @@ namespace App\Http\Controllers;
 
 use App\Models\BlogPost;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class BlogPostController extends Controller
 {
-    // List all blog posts
+    // Fetch all blog posts with cache
     public function index()
     {
-        return response()->json(BlogPost::all(), 200);
+        return Cache::tags(['blog_posts'])->remember('all_blog_posts', 60, function () {
+            return BlogPost::all();
+        });
     }
 
-    // Show a single blog post
+    // Fetch a single blog post by ID with cache
     public function show($id)
     {
-        $post = BlogPost::find($id);
-        if (!$post) {
-            return response()->json(['message' => 'Post not found'], 404);
-        }
-        return response()->json($post, 200);
+        $cacheKey = "blog_post_{$id}";
+
+        return Cache::tags(['blog_posts'])->remember($cacheKey, 60, function () use ($id) {
+            return BlogPost::findOrFail($id);
+        });
     }
 
-    // Create a new blog post
+    // Create a new blog post and clear related cache
     public function store(Request $request)
     {
-        $validatedData = $request->validate([
+        $validated = $request->validate([
             'title' => 'required|string|max:255',
             'content' => 'required|string',
         ]);
 
-        $post = BlogPost::create($validatedData);
+        $blogPost = BlogPost::create($validated);
 
-        return response()->json($post, 201);
+        // Clear the blog_posts tag cache
+        Cache::tags(['blog_posts'])->flush();
+
+        return response()->json($blogPost, 201);
     }
 
-    // Update an existing blog post
+    // Update an existing blog post and clear specific cache
     public function update(Request $request, $id)
     {
-        $post = BlogPost::find($id);
-        if (!$post) {
-            return response()->json(['message' => 'Post not found'], 404);
-        }
+        $blogPost = BlogPost::findOrFail($id);
 
-        $validatedData = $request->validate([
+        $validated = $request->validate([
             'title' => 'sometimes|string|max:255',
             'content' => 'sometimes|string',
         ]);
 
-        $post->update($validatedData);
+        $blogPost->update($validated);
 
-        return response()->json($post, 200);
+        // Clear the cache for this specific blog post
+        $cacheKey = "blog_post_{$id}";
+        Cache::tags(['blog_posts'])->forget($cacheKey);
+
+        return response()->json($blogPost, 200);
     }
 
-    // Delete a blog post
+    // Delete a blog post and clear related cache
     public function destroy($id)
     {
-        $post = BlogPost::find($id);
-        if (!$post) {
-            return response()->json(['message' => 'Post not found'], 404);
-        }
+        $blogPost = BlogPost::findOrFail($id);
 
-        $post->delete();
+        $blogPost->delete();
 
-        return response()->json(['message' => 'Post deleted successfully'], 200);
+        // Clear the blog_posts tag cache
+        Cache::tags(['blog_posts'])->flush();
+
+        return response()->json(['message' => 'Blog post deleted'], 200);
+    }
+
+    // Pre-warm the cache
+    public function preWarmCache()
+    {
+        Cache::tags(['blog_posts'])->rememberForever('all_blog_posts', function () {
+            return BlogPost::all();
+        });
+
+        return response()->json(['message' => 'Cache pre-warmed'], 200);
+    }
+
+    // Clear all blog post caches
+    public function clearCache()
+    {
+        Cache::tags(['blog_posts'])->flush();
+        return response()->json(['message' => 'Cache cleared'], 200);
     }
 }
